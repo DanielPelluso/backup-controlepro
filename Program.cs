@@ -11,6 +11,8 @@ static class Program
         //   --restore data|full <stamp> [--with-storage] --yes
         if (args.Length > 0)
         {
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; }
+            catch { /* sem console válido (ex.: duplo clique) — segue com o encoding padrão */ }
             ApplicationConfiguration.Initialize();
             return RunCli(args);
         }
