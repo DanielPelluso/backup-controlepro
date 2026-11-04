@@ -1,0 +1,18 @@
+# Build
+bin/
+obj/
+*.user
+
+# Portátil (nunca versionar exe, ferramentas ou segredos)
+dist/
+
+# Senhas/tokens DPAPI e backups (dados do usuário)
+.controlepro-dbpass
+.controlepro-access-token
+*.sql
+*.backup
+[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/
+
+# IDE
+.vs/
+.idea/

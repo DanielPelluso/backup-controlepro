@@ -1,0 +1,107 @@
+namespace BackupControlePro;
+
+static class Program
+{
+    [STAThread]
+    static int Main(string[] args)
+    {
+        // Modo CLI (teste/automação):
+        //   --backup [--no-storage]
+        //   --list
+        //   --restore data|full <stamp> [--with-storage] --yes
+        if (args.Length > 0)
+        {
+            ApplicationConfiguration.Initialize();
+            return RunCli(args);
+        }
+
+        ApplicationConfiguration.Initialize();
+        Application.Run(new MainForm());
+        return 0;
+    }
+
+    private static int RunCli(string[] args)
+    {
+        void Log(string m) => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {m}");
+        try
+        {
+            AppConfig.ValidateTools();
+            switch (args[0])
+            {
+                case "--backup":
+                {
+                    var includeStorage = !args.Contains("--no-storage");
+                    AppConfig.ValidateDbPassword();
+                    if (includeStorage) AppConfig.ValidateAccessToken();
+
+                    var r = BackupEngine.Run(includeStorage, Log);
+                    Console.WriteLine(r.Success
+                        ? $"BACKUP_OK {r.Stamp} {r.Folder} storage={r.StorageFiles}/{r.StorageBytes}"
+                        : $"BACKUP_FAIL {r.Error}");
+                    return r.Success ? 0 : 1;
+                }
+                case "--list":
+                {
+                    foreach (var e in RestoreEngine.ListAll())
+                        Console.WriteLine(
+                            $"{e.Stamp} | {e.DisplayWhen} | data={e.DataBytes} custom={e.CustomBytes}" +
+                            (e.HasStorage ? $" fotos={e.StorageFiles}/{e.StorageBytes}" : ""));
+                    return 0;
+                }
+                case "--restore" when args.Length >= 3:
+                {
+                    var scope = args[1]; // data | full
+                    var stamp = args[2];
+                    var yes = args.Contains("--yes");
+                    var withStorage = args.Contains("--with-storage");
+                    if (!yes)
+                    {
+                        Console.WriteLine("RECUSADO: falta --yes (restauração destrutiva)");
+                        return 2;
+                    }
+
+                    AppConfig.ValidateDbPassword();
+                    if (withStorage) AppConfig.ValidateAccessToken();
+
+                    var entry = RestoreEngine.ListAll()
+                        .FirstOrDefault(e => e.Stamp == stamp)
+                        ?? throw new InvalidOperationException($"backup {stamp} não encontrado");
+                    if (withStorage && !entry.HasStorage)
+                        throw new InvalidOperationException($"backup {stamp} não contém fotos");
+
+                    Log("=== PRE-RESTORE ===");
+                    var pre = BackupEngine.Run(withStorage, Log);
+                    if (!pre.Success)
+                    {
+                        Log($"pre-restore FALHOU: {pre.Error}");
+                        return 1;
+                    }
+                    Log($"pre-restore OK ({pre.Stamp})");
+
+                    Log($"=== RESTAURANDO {stamp} ({scope}{(withStorage ? " + fotos" : "")}) ===");
+                    if (scope == "full") RestoreEngine.RestoreFull(entry, Log);
+                    else RestoreEngine.RestoreData(entry, Log);
+                    RestoreEngine.CheckSequences(Log);
+
+                    if (withStorage)
+                    {
+                        var s = StorageRestoreEngine.Run(entry.Folder, Log);
+                        if (!s.Success) throw new InvalidOperationException(s.Error ?? "restore de fotos falhou");
+                    }
+
+                    Log("RESTORE_OK");
+                    return 0;
+                }
+                default:
+                    Console.WriteLine(
+                        "Uso: --backup [--no-storage] | --list | --restore data|full <stamp> [--with-storage] --yes");
+                    return 2;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ERRO: {ex.Message}");
+            return 1;
+        }
+    }
+}
