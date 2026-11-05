@@ -54,6 +54,10 @@ public static class BackupEngine
             result.DataBytes = Require(dataFile, "dados");
             result.CustomBytes = Require(customFile, "custom");
 
+            // Privilégios (GRANTs/default privileges) e dependentes fora do public
+            // (policies do storage) — sem isso a restauração fica incompleta.
+            PrivilegeEngine.Write(folder, log);
+
             if (includeStorage)
             {
                 var storage = StorageBackupEngine.Run(folder, log);
@@ -100,6 +104,8 @@ public static class BackupEngine
             schemaBytes = result.SchemaBytes,
             dataBytes = result.DataBytes,
             customBytes = result.CustomBytes,
+            privileges = File.Exists(Path.Combine(folder, "privileges.sql")),
+            externalDeps = File.Exists(Path.Combine(folder, "external-deps.sql")),
             storage = result.StorageIncluded
                 ? new
                 {
@@ -164,7 +170,7 @@ public static class BackupEngine
         foreach (var a in args) psi.ArgumentList.Add(a);
 
         psi.Environment["PGPASSWORD"] = AppConfig.DbPassword;
-        psi.Environment["PGSSLMODE"] = "require";
+        psi.Environment["PGSSLMODE"] = AppConfig.PgSslMode;
         psi.Environment["PGGSSENCMODE"] = "disable";
 
         using var p = Process.Start(psi)
@@ -175,6 +181,17 @@ public static class BackupEngine
         Task.WaitAll(stdoutTask, stderrTask);
         return (p.ExitCode, (stdoutTask.Result + stderrTask.Result).Trim());
     }
+
+    /// <summary>psql com as credenciais/destino configurados em AppConfig.</summary>
+    internal static (int Exit, string Output) RunPsql(IEnumerable<string> args) =>
+        Run(AppConfig.PsqlExe,
+            new List<string>
+            {
+                "--host", AppConfig.PoolerHost,
+                "--port", AppConfig.PoolerPort.ToString(),
+                "--username", AppConfig.DbUser,
+                "--dbname", AppConfig.DbName,
+            }.Concat(args).ToList());
 
     private static string LastLines(string s, int n = 3)
     {

@@ -8,7 +8,7 @@ static class Program
         // Modo CLI (teste/automação):
         //   --backup [--no-storage]
         //   --list
-        //   --restore data|full <stamp> [--with-storage] --yes
+        //   --restore data|full <stamp> [--with-storage] [--dry-run] --yes
         if (args.Length > 0)
         {
             try { Console.OutputEncoding = System.Text.Encoding.UTF8; }
@@ -55,15 +55,20 @@ static class Program
                     var scope = args[1]; // data | full
                     var stamp = args[2];
                     var yes = args.Contains("--yes");
+                    var dryRun = args.Contains("--dry-run");
                     var withStorage = args.Contains("--with-storage");
-                    if (!yes)
+                    if (dryRun)
+                    {
+                        Log("DRY-RUN: nada será aplicado (transação revertida ao final)");
+                    }
+                    else if (!yes)
                     {
                         Console.WriteLine("RECUSADO: falta --yes (restauração destrutiva)");
                         return 2;
                     }
 
                     AppConfig.ValidateDbPassword();
-                    if (withStorage) AppConfig.ValidateAccessToken();
+                    if (withStorage && !dryRun) AppConfig.ValidateAccessToken();
 
                     var entry = RestoreEngine.ListAll()
                         .FirstOrDefault(e => e.Stamp == stamp)
@@ -71,32 +76,39 @@ static class Program
                     if (withStorage && !entry.HasStorage)
                         throw new InvalidOperationException($"backup {stamp} não contém fotos");
 
-                    Log("=== PRE-RESTORE ===");
-                    var pre = BackupEngine.Run(withStorage, Log);
-                    if (!pre.Success)
+                    if (dryRun && withStorage)
+                        Log("aviso: --dry-run ignora a restauração de fotos");
+
+                    if (!dryRun)
                     {
-                        Log($"pre-restore FALHOU: {pre.Error}");
-                        return 1;
+                        Log("=== PRE-RESTORE ===");
+                        var pre = BackupEngine.Run(withStorage, Log);
+                        if (!pre.Success)
+                        {
+                            Log($"pre-restore FALHOU: {pre.Error}");
+                            return 1;
+                        }
+                        Log($"pre-restore OK ({pre.Stamp})");
                     }
-                    Log($"pre-restore OK ({pre.Stamp})");
 
-                    Log($"=== RESTAURANDO {stamp} ({scope}{(withStorage ? " + fotos" : "")}) ===");
-                    if (scope == "full") RestoreEngine.RestoreFull(entry, Log);
-                    else RestoreEngine.RestoreData(entry, Log);
-                    RestoreEngine.CheckSequences(Log);
+                    Log($"=== {(dryRun ? "DRY-RUN " : "")}RESTAURANDO {stamp} ({scope}{(withStorage && !dryRun ? " + fotos" : "")}) ===");
+                    if (scope == "full") RestoreEngine.RestoreFull(entry, Log, dryRun);
+                    else RestoreEngine.RestoreData(entry, Log, dryRun);
+                    if (!dryRun) RestoreEngine.CheckSequences(Log);
 
-                    if (withStorage)
+                    if (withStorage && !dryRun)
                     {
                         var s = StorageRestoreEngine.Run(entry.Folder, Log);
                         if (!s.Success) throw new InvalidOperationException(s.Error ?? "restore de fotos falhou");
                     }
 
-                    Log("RESTORE_OK");
+                    Log(dryRun ? "DRYRUN_OK" : "RESTORE_OK");
                     return 0;
                 }
                 default:
                     Console.WriteLine(
-                        "Uso: --backup [--no-storage] | --list | --restore data|full <stamp> [--with-storage] --yes");
+                        "Uso: --backup [--no-storage] | --list | " +
+                        "--restore data|full <stamp> [--with-storage] [--dry-run] --yes");
                     return 2;
             }
         }

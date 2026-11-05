@@ -12,12 +12,19 @@ namespace BackupControlePro;
 public static class AppConfig
 {
     public const string ProjectRef = "gfacmccunzgcgrhbadtf";
-    public const string PoolerHost = "aws-1-sa-east-1.pooler.supabase.com";
-    public const int PoolerPort = 5432;
-    public const string DbName = "postgres";
+    private const int DefaultPoolerPort = 5432;
 
     /// <summary>Formato da pasta de backup: DDMMAAHHMMSS (ddMMyyHHmmss).</summary>
     public const string StampFormat = "ddMMyyHHmmss";
+
+    // Overrides de destino (teste local / outro banco):
+    //   CONTROLEPRO_PG_HOST, CONTROLEPRO_PG_PORT, CONTROLEPRO_PG_USER,
+    //   CONTROLEPRO_PG_DB, CONTROLEPRO_PG_SSL
+    private const string PgHostEnv = "CONTROLEPRO_PG_HOST";
+    private const string PgPortEnv = "CONTROLEPRO_PG_PORT";
+    private const string PgUserEnv = "CONTROLEPRO_PG_USER";
+    private const string PgDbEnv = "CONTROLEPRO_PG_DB";
+    private const string PgSslEnv = "CONTROLEPRO_PG_SSL";
 
     private const string DbPasswordEnv = "CONTROLEPRO_SUPABASE_DB_PASSWORD";
     private const string DbPasswordFallbackEnv = "SUPABASE_DB_PASSWORD";
@@ -27,7 +34,26 @@ public static class AppConfig
     private const string AccessTokenFallbackEnv = "SUPABASE_ACCESS_TOKEN";
     private const string AccessTokenFileName = ".controlepro-access-token";
 
-    public static string DbUser => $"postgres.{ProjectRef}";
+    private static string? _poolerHost;
+    private static int? _poolerPort;
+    private static string? _dbName;
+    private static string? _dbUser;
+
+    public static string PoolerHost =>
+        _poolerHost ??= GetEnv(PgHostEnv) ?? "aws-1-sa-east-1.pooler.supabase.com";
+
+    public static int PoolerPort =>
+        _poolerPort ??= int.TryParse(GetEnv(PgPortEnv), out var p) && p is > 0 and < 65536
+            ? p
+            : DefaultPoolerPort;
+
+    public static string DbName => _dbName ??= GetEnv(PgDbEnv) ?? "postgres";
+
+    public static string DbUser =>
+        _dbUser ??= GetEnv(PgUserEnv) ?? $"postgres.{ProjectRef}";
+
+    /// <summary>PGSSLMODE: override via env (local usa "disable"; produção "require").</summary>
+    public static string PgSslMode => GetEnv(PgSslEnv) ?? "require";
 
     /// <summary>Raiz dos backups = pasta onde o EXE está.</summary>
     public static string BackupRoot => AppContext.BaseDirectory;
